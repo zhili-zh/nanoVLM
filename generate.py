@@ -6,7 +6,7 @@ from models.vlm import VLM
 from models.config import VLMConfig
 from data.processors import get_tokenizer, get_image_processor
 
-torch.manual_seed(0)
+torch.manual_seed(1)
 
 cfg = VLMConfig()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -21,8 +21,9 @@ model.eval()
 tokenizer = get_tokenizer(cfg.lm_tokenizer)
 image_processor = get_image_processor(cfg.vit_img_size)
 
-text = "What do you see?"
-encoded_batch = tokenizer.batch_encode_plus([text], return_tensors="pt")
+text = "What is this?"
+template = f"Question: {text} Answer:"
+encoded_batch = tokenizer.batch_encode_plus([template], return_tensors="pt")
 tokens = encoded_batch['input_ids'].to(device)
 
 image_path = 'assets/image.png'

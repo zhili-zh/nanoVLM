@@ -31,6 +31,10 @@ from data.data_utils import synchronized_dataloader_step
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+# Fix for "Decompressed data too large" error with certain PNGs
+import PIL.PngImagePlugin
+PIL.PngImagePlugin.MAX_TEXT_CHUNK = 100 * 1024 * 1024
+
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
     numpy.random.seed(worker_seed)
@@ -204,8 +208,14 @@ def train(train_cfg, vlm_cfg):
     # Define optimizer groups
     # Since we have pretrained vision and language backbones, but a newly initialized modality projection layer, it doesn't make sense to train them with the same learning rate
     # You could opt to fully freeze the backbones and only train the MP layer, but finetuning them with a lower learning rate makes the training as a whole easier
-    param_groups = [{'params': list(model.MP.parameters()), 'lr': train_cfg.lr_mp},
-                    {'params': list(model.decoder.parameters()) + list(model.vision_encoder.parameters()), 'lr': train_cfg.lr_backbones}]
+    param_groups = [{'params': list(model.MP.parameters()), 'lr': train_cfg.lr_mp}]
+
+    if train_cfg.lr_backbones > 0:
+        param_groups.append({'params': list(model.decoder.parameters()) + list(model.vision_encoder.parameters()), 'lr': train_cfg.lr_backbones})
+    else:
+        for p in list(model.decoder.parameters()) + list(model.vision_encoder.parameters()):
+            p.requires_grad = False
+        
     optimizer = optim.AdamW(param_groups)
     all_params = [p for group in optimizer.param_groups for p in group['params']]
 
@@ -290,9 +300,12 @@ def train(train_cfg, vlm_cfg):
                     grad_norm = torch.nn.utils.clip_grad_norm_(all_params, max_norm=train_cfg.max_grad_norm)
 
                 adj_lr_mp = get_lr(global_step, train_cfg.lr_mp, train_cfg.max_training_steps)
-                adj_lr_backbones = get_lr(global_step, train_cfg.lr_backbones, train_cfg.max_training_steps)
                 optimizer.param_groups[0]['lr'] = adj_lr_mp
-                optimizer.param_groups[1]['lr'] = adj_lr_backbones
+
+                if train_cfg.lr_backbones > 0:
+                    adj_lr_backbones = get_lr(global_step, train_cfg.lr_backbones, train_cfg.max_training_steps)
+                    optimizer.param_groups[1]['lr'] = adj_lr_backbones
+                
                 optimizer.step()
                 optimizer.zero_grad()
 
@@ -318,7 +331,7 @@ def train(train_cfg, vlm_cfg):
             accumulated_stats['post_process_time'].append(post_process_time)
             accumulated_stats['images_per_sample'].extend(images_per_sample)
             
-            if train_cfg.eval_in_epochs and global_step % train_cfg.eval_interval == 0 and is_update_step:
+            if train_cfg.eval_in_epochs and global_step % train_cfg.eval_interval == 0 and is_update_step and global_step > 0:
                 model.eval()
                 if device == "cuda":
                     torch.cuda.empty_cache()

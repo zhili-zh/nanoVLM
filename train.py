@@ -87,9 +87,24 @@ def get_dataloaders(train_cfg, vlm_cfg):
 
     # Load and combine all training datasets
     combined_train_data = []
-    for dataset_name in train_cfg.train_dataset_name:
-        train_ds = load_dataset(train_cfg.train_dataset_path, dataset_name)
-        combined_train_data.append(train_ds['train'])
+
+    dataset_names_to_load = train_cfg.train_dataset_name
+    if "all" in dataset_names_to_load:
+        dataset_names_to_load = get_dataset_config_names(train_cfg.train_dataset_path)
+
+    for dataset_name in dataset_names_to_load:
+        try:
+            train_ds = load_dataset(train_cfg.train_dataset_path, dataset_name)
+            train_ds['train'][0] # Check if the dataset is loaded correctly
+            combined_train_data.append(train_ds['train'])
+        except Exception as e:
+            if is_master():
+                print(f"Warning: Failed to load dataset config '{dataset_name}' from '{train_cfg.train_dataset_path}'. Error: {e}")
+            continue
+
+    if not combined_train_data:
+        raise ValueError("No valid datasets were loaded. Please check your dataset path and configurations.")
+    
     train_ds = concatenate_datasets(combined_train_data)
     
     test_ds = load_dataset(train_cfg.test_dataset_path)

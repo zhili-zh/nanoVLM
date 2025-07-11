@@ -270,6 +270,7 @@ def parse_eval_args() -> argparse.Namespace:
         action="store_true",
         help="Sets trust_remote_code to True to execute code to create HF Datasets from the Hub",
     )
+    parser.add_argument("--no_log_wandb", action="store_true", help="If True, does not log to wandb")
     parser.add_argument("--process_with_media", action="store_true", help="Whether you will process you dataset with audio, image. By default set to False" "In case some benchmarks need to be processed with media, set this flag to True.")
     args = parser.parse_args()
     return args
@@ -291,7 +292,7 @@ def cli_evaluate(args: Union[argparse.Namespace, None] = None) -> None:
     
     args = default_args
 
-    if args.wandb_args:
+    if args.wandb_args and not args.no_log_wandb:
         if "name" not in args.wandb_args:
             name = f"{args.model}_{args.model_args}_{utils.get_datetime_str(timezone=args.timezone)}"
             name = utils.sanitize_long_string(name)
@@ -344,7 +345,7 @@ def cli_evaluate(args: Union[argparse.Namespace, None] = None) -> None:
                 accelerator.wait_for_everyone()
             elif torch.distributed.is_available() and torch.distributed.is_initialized():
                 torch.distributed.barrier()
-            if is_main_process and args.wandb_args:
+            if is_main_process and args.wandb_args and not args.no_log_wandb:
                 try:
                     wandb_logger.post_init(results)
                     wandb_logger.log_eval_result()
@@ -369,7 +370,7 @@ def cli_evaluate(args: Union[argparse.Namespace, None] = None) -> None:
             if "groups" in results:
                 print(make_table(results, "groups"))
 
-    if args.wandb_args:
+    if args.wandb_args and not args.no_log_wandb:
         wandb_logger.run.finish()
 
     return results_list

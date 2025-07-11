@@ -57,8 +57,3 @@ class VQACollator(BaseCollator):  # Visual Question Answering Collator
     def __call__(self, batch):
         batch = self.prepare_batch(batch, max_length=self.max_length)
         return batch
-
-class MMStarCollator(BaseCollator):  # https://huggingface.co/datasets/Lin-Chen/MMStar
-    def __call__(self, batch):
-        batch = self.prepare_batch(batch)
-        return batch

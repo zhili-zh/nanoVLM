@@ -9,7 +9,7 @@ import contextlib
 import torch.optim as optim
 from statistics import mean
 from dataclasses import asdict
-from datasets import load_dataset, concatenate_datasets
+from datasets import load_dataset, concatenate_datasets, get_dataset_config_names
 from torch.utils.data import DataLoader, DistributedSampler
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
@@ -74,7 +74,7 @@ def get_run_name(train_cfg, vlm_cfg):
     learning_rate = f"lr{train_cfg.lr_backbones}-{train_cfg.lr_mp}"
     num_gpus = f"{get_world_size()}xGPU"
     date = time.strftime("%m%d-%H%M%S")
-    vit = f"{vlm_cfg.vit_model_type.split('/')[-1]}"
+    vit = f"{vlm_cfg.vit_model_type.split('/')[-1]}" + f"_{vlm_cfg.max_img_size}"
     mp = f"mp{vlm_cfg.mp_pixel_shuffle_factor}"
     llm = f"{vlm_cfg.lm_model_type.split('/')[-1]}"
 
@@ -82,7 +82,7 @@ def get_run_name(train_cfg, vlm_cfg):
 
 def get_dataloaders(train_cfg, vlm_cfg):
     # Create datasets
-    image_processor = get_image_processor(vlm_cfg.vit_img_size)
+    image_processor = get_image_processor(vlm_cfg.max_img_size, vlm_cfg.vit_img_size)
     tokenizer = get_tokenizer(vlm_cfg.lm_tokenizer, vlm_cfg.vlm_extra_tokens, vlm_cfg.lm_chat_template)
 
     # Load and combine all training datasets
@@ -107,7 +107,6 @@ def get_dataloaders(train_cfg, vlm_cfg):
     
     train_ds = concatenate_datasets(combined_train_data)
     
-    test_ds = load_dataset(train_cfg.test_dataset_path)
     train_ds = train_ds.shuffle(seed=0) # Shuffle the training dataset, so train and val get equal contributions from all concatenated datasets
     
     if is_dist():  # We need to shard the dataset in DDP since we are using an iterable dataset instead of the distributed sampler
@@ -252,7 +251,6 @@ def train(train_cfg, vlm_cfg):
         model = wrap_model(model)
 
     epoch_times = []
-    best_accuracy = 0
     best_val_loss = float('inf')
     global_step = 0
     epoch = 0
@@ -495,7 +493,6 @@ def train(train_cfg, vlm_cfg):
         if train_cfg.log_wandb:
             run.summary["avg_epoch_time"] = avg_epoch_time
             run.summary["avg_time_per_sample"] = avg_time_per_sample
-            run.summary["mmstar_acc"] = best_accuracy
             run.finish()
 
 def main():

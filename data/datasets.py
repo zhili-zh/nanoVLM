@@ -1,6 +1,7 @@
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
+from data.processors import get_image_string
 
 
 class BaseDataset(Dataset):
@@ -21,28 +22,32 @@ class BaseDataset(Dataset):
         random_string_location = random_string_chat_templated.find(random_string_5_letters)
         return len(self.tokenizer.encode(random_string_chat_templated[:random_string_location]))
 
-    def _get_messages(self, item, image_count=0):
+    def _get_messages(self, item, splitted_image_counts):
         messages = []
         for text in item['texts']:
             messages.append({"role": "user", "content": text['user']})
             messages.append({"role": "assistant", "content": text['assistant']})
 
-        if image_count > 0:
-            messages[0]["content"] = self.tokenizer.image_token * image_count * self.mp_image_token_length + messages[0]["content"]      
+        image_string = get_image_string(self.tokenizer, splitted_image_counts, self.mp_image_token_length)
+
+        if len(splitted_image_counts) > 0:
+            messages[0]["content"] = image_string + messages[0]["content"]      
 
         return messages
 
     def _process_images(self, images):
         processed_images = []
+        splitted_image_counts = []
         for image in images:
             if isinstance(image, Image.Image):
                 if image.mode != 'RGB':
                     image = image.convert('RGB')
-                processed_image = self.image_processor(image)
+                processed_image, splitted_image_count = self.image_processor(image)
                 processed_images.append(processed_image)
+                splitted_image_counts.append(splitted_image_count)
             else:
                 raise ValueError("Error processing image")
-        return processed_images
+        return processed_images, splitted_image_counts
 
 
     def _prepare_inputs_and_loss_mask(self, messages):
@@ -82,9 +87,9 @@ class VQADataset(BaseDataset):  # Visual Question Answering Dataset
             images_data = [images_data]
 
         # Now process the images
-        processed_images = self._process_images(images_data)
+        processed_images, splitted_image_counts = self._process_images(images_data)
 
-        messages = self._get_messages(item, len(processed_images))
+        messages = self._get_messages(item, splitted_image_counts)
 
         input_ids, mask, attention_mask = self._prepare_inputs_and_loss_mask(messages)
         labels = self._get_labels(input_ids, mask)
@@ -102,33 +107,3 @@ class VQADataset(BaseDataset):  # Visual Question Answering Dataset
         labels[-1] = -100 # Last token has no target
         
         return labels
-
-class MMStarDataset(BaseDataset):  # https://huggingface.co/datasets/Lin-Chen/MMStar
-    def __getitem__(self, idx):
-        item = self.dataset[idx]
-        
-        image = item['image']
-        processed_images = self._process_images([image])
-        
-        item['texts'] = [{
-            "user": item['question'] +  "\nAnswer only with the letter!",
-            "assistant": item['answer']
-        }]
-        messages = self._get_messages(item, image_count=len(processed_images))
-
-        input_ids, mask, attention_mask = self._prepare_inputs_and_loss_mask(messages)
-        labels = self._get_labels(input_ids, mask)
-        input_ids = input_ids.masked_fill(mask, self.tokenizer.pad_token_id)
-        attention_mask = attention_mask.masked_fill(mask, 0)
-
-        return {
-            "images": processed_images,
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "labels": labels,
-        }
-
-    def _get_labels(self, input_ids, mask):
-        labels = input_ids.clone().masked_fill(~mask, self.tokenizer.pad_token_id)
-        return labels
-

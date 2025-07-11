@@ -56,7 +56,7 @@ class NanoVLMWrapper(lmms):
             return None
             
         images = []
-        splitted_image_counts = []
+        splitted_image_ratios = []
         for visual in visual_list:
             image = None
             if isinstance(visual, Image.Image):
@@ -70,12 +70,12 @@ class NanoVLMWrapper(lmms):
                 raise ValueError(f"Unsupported visual type: {type(visual)}. Expected PIL Image, path string, or numpy array.")
             
             # Process image
-            processed_images, splitted_image_count = self.image_processor(image)
+            processed_images, splitted_image_ratio = self.image_processor(image)
             images.append(processed_images)
-            splitted_image_counts.append(splitted_image_count)
+            splitted_image_ratios.append(splitted_image_ratio)
         
         if images:
-            return images, splitted_image_counts
+            return images, splitted_image_ratios
         return None
         
     def loglikelihood(self, requests: List[Instance]) -> List[Tuple[float, bool]]:
@@ -110,12 +110,17 @@ class NanoVLMWrapper(lmms):
         for chunk in chunks:
             contexts, all_gen_kwargs, doc_to_visual, doc_id, task, split = zip(*chunk)
             visuals = [doc_to_visual[0](self.task_dict[task][split][ids]) for ids, task, split in zip(doc_id, task, split)]
-            images, splitted_image_counts = self._prepare_visual_input(self.flatten(visuals))
+            images, splitted_image_ratio = self._prepare_visual_input(self.flatten(visuals))
 
             messages = []
+            splitted_image_idx = 0
             for i in range(len(contexts)):
                 current_context_str = contexts[i]
-                image_string = get_image_string(self.tokenizer, [splitted_image_counts[i]], self.model.cfg.mp_image_token_length)
+                image_count = len(visuals[i])
+                image_string = ""
+                for _ in range(image_count):
+                    image_string += get_image_string(self.tokenizer, [splitted_image_ratio[splitted_image_idx]], self.model.cfg.mp_image_token_length)
+                    splitted_image_idx += 1
 
                 prompt_content = image_string + current_context_str
                 

@@ -16,7 +16,7 @@ from lmms_eval.api.model import lmms
 from lmms_eval.api.instance import Instance
 
 from models.vision_language_model import VisionLanguageModel
-from data.processors import get_tokenizer, get_image_processor
+from data.processors import get_tokenizer, get_image_processor, get_image_string
 from data.collators import VQACollator
 
 
@@ -48,7 +48,7 @@ class NanoVLMWrapper(lmms):
         
         # Get tokenizer and image processor from model config if not provided
         self.tokenizer = get_tokenizer(self.model.cfg.lm_tokenizer, self.model.cfg.vlm_extra_tokens, self.model.cfg.lm_chat_template)
-        self.image_processor = get_image_processor(self.model.cfg.vit_img_size)
+        self.image_processor = get_image_processor(self.model.cfg.max_img_size, self.model.cfg.vit_img_size)
             
     def _prepare_visual_input(self, visual_list: List[Image.Image]) -> Optional[torch.Tensor]:
         """Convert visual inputs to model format."""
@@ -56,6 +56,7 @@ class NanoVLMWrapper(lmms):
             return None
             
         images = []
+        splitted_image_ratios = []
         for visual in visual_list:
             image = None
             if isinstance(visual, Image.Image):
@@ -69,11 +70,12 @@ class NanoVLMWrapper(lmms):
                 raise ValueError(f"Unsupported visual type: {type(visual)}. Expected PIL Image, path string, or numpy array.")
             
             # Process image
-            processed = self.image_processor(image)
-            images.append(processed)
+            processed_images, splitted_image_ratio = self.image_processor(image)
+            images.append(processed_images)
+            splitted_image_ratios.append(splitted_image_ratio)
         
         if images:
-            return torch.stack(images).to(self.device)
+            return images, splitted_image_ratios
         return None
         
     def loglikelihood(self, requests: List[Instance]) -> List[Tuple[float, bool]]:
@@ -108,20 +110,19 @@ class NanoVLMWrapper(lmms):
         for chunk in chunks:
             contexts, all_gen_kwargs, doc_to_visual, doc_id, task, split = zip(*chunk)
             visuals = [doc_to_visual[0](self.task_dict[task][split][ids]) for ids, task, split in zip(doc_id, task, split)]
-            images = self._prepare_visual_input(self.flatten(visuals))
+            images, splitted_image_ratio = self._prepare_visual_input(self.flatten(visuals))
 
             messages = []
+            splitted_image_idx = 0
             for i in range(len(contexts)):
                 current_context_str = contexts[i]
-                current_visuals_list = visuals[i] # List of PIL Images for this sample, or None
+                image_count = len(visuals[i])
+                image_string = ""
+                for _ in range(image_count):
+                    image_string += get_image_string(self.tokenizer, [splitted_image_ratio[splitted_image_idx]], self.model.cfg.mp_image_token_length)
+                    splitted_image_idx += 1
 
-                num_images_for_item = 0
-                if current_visuals_list: # Check if the list is not None and not empty
-                    num_images_for_item = len(current_visuals_list)
-                
-                # Prepend image tokens based on the number of images for the current item
-                image_tokens_prefix = self.tokenizer.image_token * num_images_for_item * self.model.cfg.mp_image_token_length
-                prompt_content = image_tokens_prefix + current_context_str
+                prompt_content = image_string + current_context_str
                 
                 # Format text_data as a list of message dictionaries
                 messages_for_item = [{"role": "user", "content": prompt_content}]
@@ -143,7 +144,7 @@ class NanoVLMWrapper(lmms):
 
             input_ids = inputs["input_ids"].to(self.device)
             attention_mask = inputs["attention_mask"].to(self.device)
-            images = images.to(self.device)
+            # images = images.to(self.device)
 
             # Extract generation parameters for the batch
             # We use the gen_kwargs from the first item in the chunk, assuming they are uniform for the batch.

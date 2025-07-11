@@ -49,9 +49,14 @@ class VisionLanguageModel(nn.Module):
         return updated_token_embd
 
     def forward(self, input_ids, images, attention_mask=None, targets=None):
-        if isinstance(images, list) and isinstance(images[0], list):  # If images is a list of lists, flatten it
-            images = [img for sublist in images for img in sublist]
-            images = torch.stack(images).to(input_ids.device)
+        if isinstance(images, list):
+            if not images: # Handle cases with no images
+                images = torch.empty(0, self.cfg.vit_channels, self.cfg.vit_image_size, self.cfg.vit_image_size, device=input_ids.device)
+            else:
+                if isinstance(images[0], list):
+                    images = [img for sublist in images for img in sublist]
+                images = torch.cat(images, dim=0).to(input_ids.device)
+
         image_embd = self.vision_encoder(images)
         image_embd = self.MP(image_embd) # [num_images, mp_image_token_length, D_lm]
 
@@ -74,9 +79,13 @@ class VisionLanguageModel(nn.Module):
 
     @torch.inference_mode()
     def generate(self, input_ids, images, attention_mask=None, max_new_tokens=5, top_k=50, top_p=0.9, temperature=0.5, greedy=False):
-        if isinstance(images, list) and isinstance(images[0], list):  # If images is a list of lists, flatten it
-            images = [img for sublist in images for img in sublist]
-            images = torch.stack(images).to(input_ids.device)
+        if isinstance(images, list):
+            if not images: # Handle cases with no images
+                images = torch.empty(0, self.cfg.vit_channels, self.cfg.vit_image_size, self.cfg.vit_image_size, device=input_ids.device)
+            else:
+                if isinstance(images[0], list):
+                    images = [img for sublist in images for img in sublist]
+                images = torch.cat(images, dim=0).to(input_ids.device)
 
         # 1. Process image
         image_embd = self.vision_encoder(images) # [B, T_img_feat, D_model]

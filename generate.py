@@ -49,14 +49,16 @@ def main():
     model.eval()
 
     tokenizer = get_tokenizer(model.cfg.lm_tokenizer, model.cfg.vlm_extra_tokens)
-    image_processor = get_image_processor(model.cfg.vit_img_size)
-
-    messages = [{"role": "user", "content": tokenizer.image_token * model.cfg.mp_image_token_length + args.prompt}]
-    encoded_prompt = tokenizer.apply_chat_template([messages], tokenize=True, add_generation_prompt=True)
-    tokens = torch.tensor(encoded_prompt).to(device)
+    image_processor = get_image_processor(model.cfg.max_img_size, model.cfg.vit_img_size)
 
     img = Image.open(args.image).convert("RGB")
-    img_t = image_processor(img).unsqueeze(0).to(device)
+    processed_image, splittedimage_count = image_processor(img)
+    vit_patch_size = splittedimage_count[0] * splittedimage_count[1]
+
+    messages = [{"role": "user", "content": tokenizer.image_token * model.cfg.mp_image_token_length * vit_patch_size + args.prompt}]
+    encoded_prompt = tokenizer.apply_chat_template([messages], tokenize=True, add_generation_prompt=True)
+    tokens = torch.tensor(encoded_prompt).to(device)
+    img_t = processed_image.to(device)
 
     print("\nInput:\n ", args.prompt, "\n\nOutputs:")
     for i in range(args.generations):

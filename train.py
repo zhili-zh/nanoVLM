@@ -139,7 +139,7 @@ def get_dataloaders(train_cfg, vlm_cfg):
         train_dataset,
         batch_size=train_cfg.batch_size,    # =per device BS in DDP
         collate_fn=vqa_collator,
-        num_workers=8,
+        num_workers=0,
         pin_memory=True,
         drop_last=True,
         worker_init_fn=seed_worker,
@@ -299,7 +299,9 @@ def train(train_cfg, vlm_cfg):
             )
             with autocast_context:
                 with context:
-                    _, loss = model(input_ids, images, attention_mask=attention_mask, targets=labels)
+                    logits, loss = model(input_ids, images, attention_mask=attention_mask, targets=labels)
+
+            print("Train", "Logits Shape", logits.shape, "Loss:", loss.item())
 
             if train_cfg.gradient_accumulation_steps > 1:
                 loss = loss / train_cfg.gradient_accumulation_steps
@@ -357,7 +359,15 @@ def train(train_cfg, vlm_cfg):
                         attention_mask = batch["attention_mask"].to(device)
 
                         with autocast_context:
-                            _, loss = model(input_ids, images, attention_mask=attention_mask, targets=labels)
+                            eval_logits, loss = model(input_ids, images, attention_mask=attention_mask, targets=labels)
+                        print("Eval", "Logits Shape", eval_logits.shape, "Loss:", loss.item())
+                        token_ids = eval_logits.argmax(dim=-1)  # [B, T]
+                        unique, counts = torch.unique(token_ids, return_counts=True)
+
+                        for token_id, count in zip(unique.tolist(), counts.tolist()):
+                            token_str = tokenizer.decode([token_id])
+                            print(f"token_id {token_id:>5} ({repr(token_str):>10}): {count} times")
+
 
                         total_val_loss += loss.item()
                     avg_val_loss = total_val_loss / len(val_loader) if len(val_loader) > 0 else 0
@@ -485,7 +495,7 @@ def train(train_cfg, vlm_cfg):
         print(f"Average time per sample: {avg_time_per_sample:.4f}s")
 
         # Push the best model to the hub (Please set your user name in the config!)
-        if vlm_cfg.hf_repo_name is not None:
+        if False and vlm_cfg.hf_repo_name is not None:
             print("Training complete. Pushing model to Hugging Face Hub...")
             hf_model = VisionLanguageModel.from_pretrained(os.path.join(vlm_cfg.vlm_checkpoint_path, run_name))
             hf_model.push_to_hub(vlm_cfg.hf_repo_name)

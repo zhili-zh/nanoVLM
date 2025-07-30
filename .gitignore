@@ -6,6 +6,11 @@ build/
 dist/
 wheels/
 *.egg-info
+.cache/
+**/.cache/
+**/huggingface/
+**/xet/
+
 
 # Virtual environments
 .venv

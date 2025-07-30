@@ -362,11 +362,27 @@ def train(train_cfg, vlm_cfg):
                             eval_logits, loss = model(input_ids, images, attention_mask=attention_mask, targets=labels)
                         print("Eval", "Logits Shape", eval_logits.shape, "Loss:", loss.item())
                         token_ids = eval_logits.argmax(dim=-1)  # [B, T]
-                        unique, counts = torch.unique(token_ids, return_counts=True)
+                        decoded_texts = tokenizer.batch_decode(token_ids, skip_special_tokens=True)
+
+                        for i, text in enumerate(decoded_texts):
+                            print(f"[Eval Sample {i}] Output: {repr(text)}")
+
+                        # unique, counts = torch.unique(token_ids, return_counts=True)
+                        # prompt = input_ids
+                        decoded_prompts = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+                        # decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+                        unique, counts = torch.unique(labels, return_counts=True)
+
+                        for i in range(len(decoded_texts)):
+                            print(f"[Eval Sample {i}]")
+                            print(f"  Prompt: {repr(decoded_prompts[i])}")
+                            print(f"  Target: {repr(labels[i])}")
+                            print(f"  Output: {repr(decoded_texts[i])}")
 
                         for token_id, count in zip(unique.tolist(), counts.tolist()):
-                            token_str = tokenizer.decode([token_id])
-                            print(f"token_id {token_id:>5} ({repr(token_str):>10}): {count} times")
+                            if 0 < token_id < tokenizer.vocab_size:
+                                token_str = tokenizer.decode([token_id])
+                                print(f"token_id {token_id:>5} ({repr(token_str):>10}): {count} times")
 
 
                         total_val_loss += loss.item()

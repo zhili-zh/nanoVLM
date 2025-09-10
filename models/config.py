@@ -62,7 +62,7 @@ class TrainConfig:
     eval_interval: int = gradient_accumulation_steps * 10
     # eval_interval: int = gradient_accumulation_steps * 100
     stats_log_interval: int = gradient_accumulation_steps * 25
-    max_training_steps: int = 80
+    max_training_steps: int = 400
     max_images_per_example: int = 4
     max_images_per_knapsack: int = 18
     max_sample_length: int = 1024
